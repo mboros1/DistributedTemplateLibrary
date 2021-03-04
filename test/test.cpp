@@ -1,5 +1,5 @@
 //
-// Created by borosm on 10/14/2020.
+// Created by Martin Boros on 3/1/21.
 //
 
 #define CATCH_CONFIG_MAIN
@@ -9,30 +9,32 @@
 #include <vector>
 #include <iostream>
 #include <typeinfo>
+#include <wait.h>
+#include <thread>
 
 TEST_CASE("Base case", "[base_case]"){
     std::vector<int> v;
     dtl::DistributedVector<int> d;
 
-    assert(v.size() == d.size());
+    REQUIRE(v.size() == d.size());
 
-    for(int i = 0; i < 20000000; ++i){
+    for(int i = 0; i < 2000000; ++i){
         v.push_back(i);
         auto j = d.push_back(i);
         auto v_i = v.at(i);
         auto d_i = d.at(i);
-        assert(v_i == d_i);
-        assert(d.at(j) == d_i);
-        assert(d.size() == v.size());
+        REQUIRE(v_i == d_i);
+        REQUIRE(d.at(j) == d_i);
+        REQUIRE(d.size() == v.size());
     }
 
-    for(int i = 0; i < 20000000; ++i){
+    for(int i = 0; i < 2000000; ++i){
         auto d_i = d.at(i);
         auto x = d.data()[i];
-        assert(x == d_i);
+        REQUIRE(x == d_i);
     }
 
-    assert(v.size() == d.size());
+    REQUIRE(v.size() == d.size());
 }
 
 TEST_CASE("pre-alloc constructor", "[pre_alloc]"){
@@ -82,8 +84,15 @@ TEST_CASE("POD object", "[pod_obj]"){
     }
 
     for(int i = 0; i < 5; ++i){
-        assert(v.at(i).x == 0.5f);
+        REQUIRE(v.at(i).x == 0.5f);
     }
+
+    v.at(4).x = 1.0f;
+    for(int i = 0; i < 4; ++i){
+        REQUIRE(v.at(i).x == 0.5f);
+    }
+    REQUIRE(v.at(4).x == 1.0f);
+
 
     dtl::DistributedVector<RandomPod*> v2;
 }
@@ -99,5 +108,53 @@ TEST_CASE("Destructor", "[destructor]"){
         v.push_back(p);
         v.push_back(p);
     }
+
+}
+
+TEST_CASE("fork", "[fork]"){
+    dtl::DistributedVector<int> v;
+
+    int pid = fork();
+
+    for(int i = 0; i < 10; ++i){
+        v.push_back(i);
+    }
+    printf("%p\n", &v);
+
+    if (pid != 0){
+        int child_status;
+        waitpid(pid, &child_status, 0);
+        for(int i = 0; i < 23; ++i){
+            std::cout << v.data()[i] << ' ';
+        }
+        std::cout << '\n';
+        REQUIRE(v.size() == 23);
+    } else {
+        v.push_back(11);
+        v.push_back(11);
+        v.push_back(11);
+    }
+}
+
+void thread_push(dtl::DistributedVector<int> v){
+    for(int i = 0; i < 10; ++i){
+        v.push_back(i);
+    }
+}
+
+TEST_CASE("threads", "[threads]"){
+    dtl::DistributedVector<int> v;
+
+    for(int i = 0; i < 10; ++i){
+        std::thread t(thread_push, v);
+        t.detach();
+    }
+
+    std::this_thread::sleep_for(std::chrono::seconds(5));
+    for(int i = 0; i < v.size(); ++i){
+        std::cout << v.at(i) << ' ';
+    }
+    std::cout << '\n';
+    std::cout << v.size() << ' ' << v.capacity() << '\n';
 
 }
